@@ -1,0 +1,224 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speed Rush - Fixed Screen + Speed Control</title>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            background:#87CEEB;
+            font-family:Arial;
+            overflow:hidden;
+            height:100vh;
+            display:flex;
+            justify-content:center;
+            align-items:center;
+        }
+        canvas {
+            border:4px solid #222;
+            border-radius:15px;
+            box-shadow:0 15px 40px rgba(0,0,0,0.6);
+        }
+        .btn {
+            position:absolute;
+            width:70px; height:70px;
+            background:rgba(255,255,255,0.3);
+            border-radius:50%;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            font-size:40px;
+            font-weight:bold;
+            user-select:none;
+            backdrop-filter:blur(10px);
+            border:3px solid white;
+        }
+        .btn:active { background:rgba(255,255,255,0.5); transform:scale(0.9); }
+        #up    { top:30px; left:50%; transform:translateX(-50%); }
+        #down  { top:110px; left:50%; transform:translateX(-50%); background:#ff9800; color:white; }
+        #left  { bottom:140px; left:40px; }
+        #right { bottom:140px; right:40px; }
+        #pause { bottom:50px; left:50%; transform:translateX(-50%); background:#e74c3c; color:white; }
+        #startBtn, #resumeBtn {
+            position:absolute;
+            bottom:30px;
+            padding:18px 40px;
+            font-size:24px;
+            font-weight:bold;
+            color:white;
+            border:none;
+            border-radius:20px;
+            cursor:pointer;
+            box-shadow:0 10px 30px rgba(0,0,0,0.5);
+        }
+        #startBtn  { left:30px; background:#e74c3c; }
+        #resumeBtn { right:30px; background:#27ae60; display:none; }
+        #gameOver {
+            position:absolute;
+            top:0; left:0; width:100%; height:100%;
+            background:rgba(0,0,0,0.95);
+            display:flex;
+            flex-direction:column;
+            justify-content:center;
+            align-items:center;
+            color:white;
+            font-size:60px;
+            display:none;
+            z-index:100;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="c" width="400" height="600"></canvas>
+
+<div class="btn" id="up">Up</div>
+<div class="btn" id="down">Down</div>
+<div class="btn" id="left">Left</div>
+<div class="btn" id="right">Right</div>
+<div class="btn" id="pause">Pause</div>
+
+<button id="startBtn">START</button>
+<button id="resumeBtn">RESUME</button>
+
+<div id="gameOver">
+    <div>GAME OVER</div>
+    <div style="font-size:40px; margin:20px">Score: <span id="final">0</span></div>
+    <button onclick="restart()" style="margin-top:30px; padding:15px 50px; font-size:28px; background:#e74c3c; border:none; border-radius:15px; color:white; cursor:pointer;">
+        START AGAIN
+    </button>
+</div>
+
+<script>
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+    const startBtn = document.getElementById('startBtn');
+    const resumeBtn = document.getElementById('resumeBtn');
+    const gameOver = document.getElementById('gameOver');
+    const finalScore = document.getElementById('final');
+
+    let car = { lane:1, x:175, y:480, w:50, h:80 };
+    let enemies = [];
+    let score = 0;
+    let speed = 5;           // አሁን በእጅ ትቆጣጠራለህ!
+    let running = false;
+    let paused = false;
+    const lanes = [107, 200, 293];
+    const colors = ['#e74c3c','#3498db','#2ecc71','#f1c40f','#9b59b6','#e67e22'];
+
+    function speak(t){ if('speechSynthesis' in window) speechSynthesis.speak(new SpeechSynthesisUtterance(t)); }
+
+    // መኪና መሳል
+    function drawCar(x,y,color,player=false){
+        ctx.fillStyle = color;
+        ctx.fillRect(x,y,car.w,car.h);
+        ctx.fillStyle = player ? '#ffff00' : '#ffffff';
+        ctx.fillRect(x+8,y+10,10,20);
+        ctx.fillRect(x+32,y+10,10,20);
+    }
+
+    // መንገድ (ሙሉ በሙሉ ተቀምጦ ይቆያል!)
+    function drawRoad(){
+        ctx.fillStyle = '#333';
+        ctx.fillRect(60,0,280,600);
+        ctx.fillStyle = '#228B22';
+        ctx.fillRect(0,0,60,600);
+        ctx.fillRect(340,0,60,600);
+
+        // መስመሮች ሙሉ በሙሉ ተቀምጠው!
+        ctx.fillStyle = 'white';
+        ctx.fillRect(60,0,4,600);
+        ctx.fillRect(336,0,4,600);
+        ctx.fillStyle = '#ffff44';
+        ctx.fillRect(198,0,4,600);
+        ctx.fillStyle = '#ffffff88';
+        ctx.fillRect(154,0,3,600);
+        ctx.fillRect(246,0,3,600);
+    }
+
+    function spawnEnemy(){
+        let lane = Math.floor(Math.random()*3);
+        while(lane===enemies[enemies.length-1]?.lane) lane = Math.floor(Math.random()*3);
+        enemies.push({
+            x: lanes[lane]-25,
+            y: -100,
+            lane: lane,
+            color: colors[Math.floor(Math.random()*colors.length)]
+        });
+    }
+
+    function loop(){
+        if(!running || paused) { requestAnimationFrame(loop); return; }
+
+        ctx.clearRect(0,0,400,600);
+        drawRoad();
+
+        // መኪና ለስላሳ መቀየር
+        car.x += (lanes[car.lane]-25 - car.x) * 0.2;
+
+        drawCar(car.x, car.y, '#e74c3c', true);
+
+        // ጠላት መኪኖች
+        if(Math.random() < 0.02) spawnEnemy();
+        for(let i=enemies.length-1; i>=0; i--){
+            let e = enemies[i];
+            e.y += speed;
+            drawCar(e.x, e.y, e.color);
+
+            // ኮላይዝን
+            if(Math.abs(e.x - car.x)<45 && Math.abs(e.y - car.y)<70){
+                running = false;
+                gameOver.style.display = 'flex';
+                finalScore.textContent = Math.floor(score);
+                speak("Game over!");
+                return;
+            }
+            if(e.y > 650){
+                enemies.splice(i,1);
+                score += 10;
+            }
+        }
+
+        // ውድድር
+        score += 0.1;
+        ctx.fillStyle='white';
+        ctx.font='bold 30px Arial';
+        ctx.fillText('Score: '+Math.floor(score), 10, 50);
+        ctx.fillText('Speed: '+speed.toFixed(1), 10, 90);
+
+        requestAnimationFrame(loop);
+    }
+
+    // ኮንትሮሎች
+    document.getElementById('left').onclick = ()=>{ if(running&&!paused) car.lane = Math.max(0,car.lane-1); };
+    document.getElementById('right').onclick = ()=>{ if(running&&!paused) car.lane = Math.min(2,car.lane+1); };
+    document.getElementById('up').onclick = ()=>{ if(running&&!paused) speed = Math.min(20, speed+1); speak("Faster"); };
+    document.getElementById('down').onclick = ()=>{ if(running&&!paused) speed = Math.max(2, speed-1); speak("Slower"); };
+    document.getElementById('pause').onclick = ()=>{ paused=true; resumeBtn.style.display='block'; speak("Paused"); };
+
+    startBtn.onclick = ()=>{
+        running = true; paused = false;
+        startBtn.style.display='none';
+        resumeBtn.style.display='none';
+        enemies=[]; score=0; speed=5; car.lane=1;
+        speak("Go!");
+        loop();
+    };
+    resumeBtn.onclick = ()=>{ paused=false; resumeBtn.style.display='none'; speak("Continue"); loop(); };
+    function restart(){ gameOver.style.display='none'; startBtn.onclick(); }
+
+    // ኪቦርድም ይሰራል
+    document.addEventListener('keydown', e=>{
+        if(!running || paused) return;
+        if(e.key==='ArrowLeft') car.lane = Math.max(0,car.lane-1);
+        if(e.key==='ArrowRight') car.lane = Math.min(2,car.lane+1);
+        if(e.key==='ArrowUp') speed = Math.min(20, speed+1);
+        if(e.key==='ArrowDown') speed = Math.max(2, speed-1);
+    });
+
+    speak("Welcome! Tap START to play");
+</script>
+</body>
+</html>
